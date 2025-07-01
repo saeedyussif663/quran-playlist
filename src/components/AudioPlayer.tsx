@@ -3,6 +3,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { quran, type ChapterId } from '@quranjs/api';
 import {
   BookOpen,
+  Loader,
   Pause,
   Play,
   SkipBack,
@@ -26,14 +27,18 @@ export const AudioPlayer = ({
   onPlay,
   onPause,
 }: AudioPlayerProps) => {
-  const [progress, setProgress] = useState([25]);
-  const [volume, setVolume] = useState([75]);
+  const [progress, setProgress] = useState([0]);
+  const [volume, setVolume] = useState([10]);
   const [currentSurahIndex, setCurrentSurahIndex] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
 
   useEffect(() => {
     async function fetchAudioData() {
       try {
+        setIsLoading(true);
         const currentSurahId = playlist.surahs[currentSurahIndex]
           ?.id as ChapterId;
 
@@ -49,24 +54,79 @@ export const AudioPlayer = ({
         }
 
         const newAudio = new Audio(res.audioUrl);
-        newAudio.play();
+        newAudio.volume = volume[0] / 100;
+
+        newAudio.onloadeddata = () => {
+          newAudio.play();
+          onPlay();
+          setIsLoading(false);
+        };
+
+        newAudio.ontimeupdate = () => {
+          setCurrentTime(newAudio.currentTime);
+          setDuration(newAudio.duration || 0);
+          const percentage = (newAudio.currentTime / newAudio.duration) * 100;
+          setProgress([isNaN(percentage) ? 0 : percentage]);
+        };
+
+        newAudio.onended = () => {
+          if (currentSurahIndex < playlist.surahs.length - 1) {
+            setCurrentSurahIndex((prev) => prev + 1);
+          } else {
+            onPause();
+          }
+        };
 
         audioRef.current = newAudio;
       } catch (error: unknown) {
-        console.log(error);
+        console.error(error);
         alert('Error fetching audio data');
+        setIsLoading(false);
       }
     }
 
     fetchAudioData();
+
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+        audioRef.current.load();
+      }
+    };
   }, [playlist, currentSurahIndex]);
+
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.volume = volume[0] / 100;
+    }
+  }, [volume]);
+
+  const handleSeek = (value: number[]) => {
+    if (audioRef.current && duration) {
+      const seekTime = (value[0] / 100) * duration;
+      audioRef.current.currentTime = seekTime;
+      setProgress(value);
+    }
+  };
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  };
 
   const currentSurah = playlist.surahs[currentSurahIndex];
 
   const handlePlayPause = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
     if (isPlaying) {
+      audio.pause();
       onPause();
     } else {
+      audio.play();
       onPlay();
     }
   };
@@ -123,7 +183,9 @@ export const AudioPlayer = ({
                   className="w-12 h-12 gradient-islamic text-white hover:opacity-90"
                   onClick={handlePlayPause}
                 >
-                  {isPlaying ? (
+                  {isLoading ? (
+                    <Loader className="w-3 h-3 animate-spin" />
+                  ) : isPlaying ? (
                     <Pause className="w-3 h-3" />
                   ) : (
                     <Play className="w-3 h-3" />
@@ -141,16 +203,21 @@ export const AudioPlayer = ({
               </div>
 
               <div className="w-full max-w-xs flex items-center space-x-2">
-                <span className="text-xs text-muted-foreground">1:23</span>
+                <span className="text-xs text-muted-foreground">
+                  {formatTime(currentTime)}
+                </span>
                 <Slider
                   value={progress}
-                  onValueChange={setProgress}
+                  onValueChange={handleSeek}
                   max={100}
-                  step={1}
+                  step={0.1}
                   className="flex-1"
                 />
-                <span className="text-xs text-muted-foreground">5:45</span>
+                <span className="text-xs text-muted-foreground">
+                  {formatTime(duration)}
+                </span>
               </div>
+
               <div className="text-xs text-muted-foreground">
                 {currentSurahIndex + 1} of {playlist.surahs.length}
               </div>
