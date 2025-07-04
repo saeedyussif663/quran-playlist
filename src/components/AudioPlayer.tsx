@@ -28,7 +28,7 @@ export const AudioPlayer = ({
   onPause,
 }: AudioPlayerProps) => {
   const [progress, setProgress] = useState([0]);
-  const [volume, setVolume] = useState([10]);
+  const [volume, setVolume] = useState([50]);
   const [currentSurahIndex, setCurrentSurahIndex] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -55,22 +55,31 @@ export const AudioPlayer = ({
 
         const newAudio = new Audio(res.audioUrl);
         newAudio.volume = volume[0] / 100;
-        console.log(newAudio);
+        newAudio.preload = 'metadata'; // Better for mobile
 
-        newAudio.onloadeddata = () => {
-          newAudio.play();
-          onPlay();
+        // Use multiple event listeners for better mobile compatibility
+        const handleCanPlay = () => {
           setIsLoading(false);
+          // Only auto-play if user has already interacted (isPlaying state)
+          if (isPlaying) {
+            newAudio.play().catch((error) => {
+              console.error('Play failed:', error);
+              onPause();
+            });
+          }
         };
 
-        newAudio.ontimeupdate = () => {
-          setCurrentTime(newAudio.currentTime);
+        const handleLoadedMetadata = () => {
           setDuration(newAudio.duration || 0);
+        };
+
+        const handleTimeUpdate = () => {
+          setCurrentTime(newAudio.currentTime);
           const percentage = (newAudio.currentTime / newAudio.duration) * 100;
           setProgress([isNaN(percentage) ? 0 : percentage]);
         };
 
-        newAudio.onended = () => {
+        const handleEnded = () => {
           if (currentSurahIndex < playlist.surahs.length - 1) {
             setCurrentSurahIndex((prev) => prev + 1);
           } else {
@@ -78,11 +87,41 @@ export const AudioPlayer = ({
           }
         };
 
+        const handleError = (error: unknown) => {
+          console.error('Audio error:', error);
+          setIsLoading(false);
+          onPause();
+        };
+
+        // Add event listeners
+        newAudio.addEventListener('canplay', handleCanPlay);
+        newAudio.addEventListener('loadedmetadata', handleLoadedMetadata);
+        newAudio.addEventListener('timeupdate', handleTimeUpdate);
+        newAudio.addEventListener('ended', handleEnded);
+        newAudio.addEventListener('error', handleError);
+
+        // For mobile: try to load the audio
+        try {
+          await newAudio.load();
+        } catch (error) {
+          console.error('Load failed:', error);
+        }
+
         audioRef.current = newAudio;
+
+        // Clean up function for event listeners
+        return () => {
+          newAudio.removeEventListener('canplay', handleCanPlay);
+          newAudio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+          newAudio.removeEventListener('timeupdate', handleTimeUpdate);
+          newAudio.removeEventListener('ended', handleEnded);
+          newAudio.removeEventListener('error', handleError);
+        };
       } catch (error: unknown) {
         console.error(error);
         alert('Error fetching audio data');
         setIsLoading(false);
+        onPause();
       }
     }
 
@@ -119,16 +158,24 @@ export const AudioPlayer = ({
 
   const currentSurah = playlist.surahs[currentSurahIndex];
 
-  const handlePlayPause = () => {
+  const handlePlayPause = async () => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    if (isPlaying) {
-      audio.pause();
+    try {
+      if (isPlaying) {
+        audio.pause();
+        onPause();
+      } else {
+        setIsLoading(true);
+        await audio.play();
+        onPlay();
+        setIsLoading(false);
+      }
+    } catch (error: unknown) {
+      console.error('Play/Pause failed:', error);
+      setIsLoading(false);
       onPause();
-    } else {
-      audio.play();
-      onPlay();
     }
   };
 
