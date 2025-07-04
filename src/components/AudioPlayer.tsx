@@ -55,6 +55,7 @@ export const AudioPlayer = ({
 
         const newAudio = new Audio(res.audioUrl);
         newAudio.volume = volume[0] / 100;
+        console.log(newAudio);
 
         newAudio.onloadeddata = () => {
           newAudio.play();
